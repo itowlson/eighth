@@ -14,4 +14,8 @@ type WasmInstruction =
     | I32Const of int
     | I32Store
     | Call of FuncIndex
+    | I32Add
+    | I32Mul
+    | Dup
+    | Swap
     | Drop
