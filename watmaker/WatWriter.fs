@@ -45,17 +45,22 @@ let typeId ty =
     | F32 -> "f32"
     | F64 -> "f64"
 
+let indexText =
+    function
+    | LocalIndex(n) -> n.ToString()
+    | LocalId(s) -> s
+
 let writeInstruction writer instruction =
     let text = 
         match instruction with
-        | LocalGet(index) ->
-            let argtext =
-                match index with
-                | LocalIndex(n) -> n.ToString()
-                | LocalId(s) -> s
-            sprintf "local.get %s" argtext
+        | LocalGet(index) -> sprintf "local.get %s" (indexText index)
+        | LocalSet(index) -> sprintf "local.set %s" (indexText index)
+        | LocalTee(index) -> sprintf "local.tee %s" (indexText index)
         | I32Const(value) -> sprintf "i32.const %d" value
         | I32Store -> "i32.store"
+        | I32Add -> "i32.add"
+        | I32Sub -> "i32.sub"
+        | I32Mul -> "i32.mul"
         | Call(index) ->
             let argtext =
                 match index with
@@ -90,6 +95,7 @@ let writeFunction writer watFunction =
         | None -> ()
         writeLineItems writer (List.map (fun (n, ty) -> sprintf "(param %s %s)" n (typeId ty)) watFunction.Parameters)
         writeLineItems writer (List.map (typeId >> sprintf "(result %s)") watFunction.ResultTypes)
+        writeLineItems writer (List.map (fun (n, ty) -> sprintf "(local %s %s)" n (typeId ty)) watFunction.Locals)
         List.iter (writeInstruction writer) watFunction.Instructions
     )
     writeLine writer ")"
