@@ -35,9 +35,9 @@ let compileFunc (func: EFunc) =
         Export = Some(func.Name)
     }
 
-let compileModule func =
+let compileModule funcs =
     {
-        Functions = [compileFunc func]
+        Functions = funcs |> List.map compileFunc
         Imports = []
         Data = []
     }

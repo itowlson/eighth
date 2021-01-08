@@ -79,14 +79,15 @@ let einstructions = braced (sepEndBy einstruction spaces)
 
 let efuncbody = pipe3 name signature einstructions makeEFunc
 let efunc = litw "func" >>. efuncbody
+let efuncs = sepEndBy efunc spaces
 
 let parseModule str =
     match run emodule str with
     | Success(result, _, _) -> Result.Ok(result)
     | Failure(errorMsg, _, _) -> Err(errorMsg)
 
-let parseefunc str =
-    match run efunc str with
+let parseefuncs str =
+    match run efuncs str with
     | Success(result, _, _) -> Result.Ok(result)
     | Failure(errorMsg, _, _) -> Err(errorMsg)
 
