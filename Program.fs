@@ -26,6 +26,7 @@ let main argv =
                 let writer = WatWriter.New()
                 writeModule writer wat
                 printfn "%s" (WatWriter.text writer)
-                System.IO.File.WriteAllText("testdata/gen.wat", (WatWriter.text writer))
+                System.IO.Directory.CreateDirectory("out") |> ignore
+                System.IO.File.WriteAllText("out/gen.wat", (WatWriter.text writer))
                 0
     | Err(e) -> printfn "OH NO!!! %s" e; 1
