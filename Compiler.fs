@@ -33,14 +33,28 @@ let compileInstructions (instructions: EInstruction list) =
 // let setupStack (inputs: TypeName list) =
 //     inputs |> List.mapi (fun index _ -> WasmInstruction.LocalGet(LocalId(sprintf "$%d" index))) |> List.rev
 
+let rec flattenStruct (structs: EStruct list) estruct =
+    estruct.Fields |> List.collect (fun field ->
+        match structs |> List.tryFind (fun s -> (TypeName s.Name) = field.FieldType) with
+        | Some(embstr) -> flattenStruct structs embstr
+        | None         -> [I32]
+    )
+
 let lltypes (structs: EStruct list) (TypeName ty) =
     match structs |> List.tryFind (fun s -> s.Name = ty) with
-    | Some(typedef) -> typedef.Fields |> List.map (fun field -> I32)  // TODO: nested stricts
+    | Some(typedef) -> flattenStruct structs typedef
     | None -> [I32]
+
+let rec flattenParamStruct (structs: EStruct list) prefix estruct =
+    estruct.Fields |> List.collect (fun field ->
+        match structs |> List.tryFind (fun s -> (TypeName s.Name) = field.FieldType) with
+        | Some(embstr) -> flattenParamStruct structs (sprintf "%s.%s" prefix field.Name) embstr
+        | None         -> [(sprintf "%s.%s" prefix field.Name, I32)]
+    )
 
 let llparameters (structs: EStruct list) argIndex (TypeName ty) =
     match structs |> List.tryFind (fun s -> s.Name = ty) with
-    | Some(typedef) -> typedef.Fields |> List.map (fun field -> (sprintf "$%d.%s" argIndex field.Name, I32))  // TODO: nested stricts
+    | Some(typedef) -> flattenParamStruct structs (sprintf "$%d" argIndex) typedef
     | None -> [(sprintf "$%d" argIndex, I32)]
 
 let compileFunc structs (func: EFunc) =
