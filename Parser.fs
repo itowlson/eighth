@@ -25,6 +25,16 @@ let makeModule funcs = {
     Functions = funcs
 }
 
+let makeEField name typeName = {
+    Name = name
+    FieldType = typeName
+}
+
+let makeEStruct name fields = {
+    Name = name
+    Fields = fields
+}
+
 let makeEFunc name (inputs, outputs) instructions = {
     Name = name
     Inputs = inputs
@@ -79,15 +89,26 @@ let einstructions = braced (sepEndBy einstruction spaces)
 
 let efuncbody = pipe3 name signature einstructions makeEFunc
 let efunc = litw "func" >>. efuncbody
-let efuncs = sepEndBy efunc spaces
+
+let efield = spaced2 name typeName makeEField
+let efields = braced (sepEndBy efield spaces)
+
+let estructbody = pipe2 name efields makeEStruct
+let estruct = litw "struct" >>. estructbody
+
+let efuncitem = efunc |>> Func
+let estructitem = estruct |>> Struct
+
+let edecl = efuncitem <|> estructitem
+let eprog = sepEndBy edecl spaces
 
 let parseModule str =
     match run emodule str with
     | Success(result, _, _) -> Result.Ok(result)
     | Failure(errorMsg, _, _) -> Err(errorMsg)
 
-let parseefuncs str =
-    match run efuncs str with
+let parseeprog str =
+    match run eprog str with
     | Success(result, _, _) -> Result.Ok(result)
     | Failure(errorMsg, _, _) -> Err(errorMsg)
 

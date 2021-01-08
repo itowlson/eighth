@@ -23,6 +23,15 @@ type Module = {
     Functions: Func list
 }
 
+type EField = {
+    Name: string
+    FieldType: TypeName
+}
+type EStruct = {
+    Name: string
+    Fields: EField list
+}
+
 type EInstruction = EInstruction of string
 
 type EFunc = {
@@ -32,3 +41,6 @@ type EFunc = {
     Instructions: EInstruction list
 }
 
+type ESyntaxItem =
+| Func of EFunc
+| Struct of EStruct
