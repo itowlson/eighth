@@ -41,6 +41,13 @@ type EFunc = {
     Instructions: EInstruction list
 }
 
+type EImport = {
+    SourceModule: string
+    Name: string
+    Inputs: TypeName list
+    Outputs: TypeName list
+}
 type ESyntaxItem =
 | Func of EFunc
 | Struct of EStruct
+| Import of EImport

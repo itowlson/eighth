@@ -42,6 +42,13 @@ let makeEFunc name (inputs, outputs) instructions = {
     Instructions = instructions
 }
 
+let makeEImport modname name (inputs, outputs) = {
+    SourceModule = modname
+    Name = name
+    Inputs = inputs
+    Outputs = outputs
+}
+
 let ws p = spaces >>. p .>> spaces
 let lit s = pstring s
 let litw s = ws (lit s)
@@ -96,10 +103,14 @@ let efields = braced (sepEndBy efield spaces)
 let estructbody = pipe2 name efields makeEStruct
 let estruct = litw "struct" >>. estructbody
 
+let eimportbody = spaced3 name name signature makeEImport
+let eimport = litw "import" >>. eimportbody
+
 let efuncitem = efunc |>> Func
 let estructitem = estruct |>> Struct
+let eimportitem = eimport |>> Import
 
-let edecl = efuncitem <|> estructitem
+let edecl = efuncitem <|> estructitem <|> eimportitem
 let eprog = sepEndBy edecl spaces
 
 let parseModule str =

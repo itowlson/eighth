@@ -4,6 +4,7 @@ open Ast
 
 open WasmTypes
 open WasmInstruction
+open WatImport
 open WatFunction
 open WatModule
 
@@ -29,9 +30,6 @@ let compileInstruction (EInstruction instruction) =
 
 let compileInstructions (instructions: EInstruction list) =
     List.collect compileInstruction instructions
-
-// let setupStack (inputs: TypeName list) =
-//     inputs |> List.mapi (fun index _ -> WasmInstruction.LocalGet(LocalId(sprintf "$%d" index))) |> List.rev
 
 let rec flattenStruct (structs: EStruct list) estruct =
     estruct.Fields |> List.collect (fun field ->
@@ -61,10 +59,18 @@ let compileFunc structs (func: EFunc) =
     {
         WatFunction.Name = sprintf "$%s" func.Name
         Parameters = func.Inputs |> List.mapi (llparameters structs) |> List.concat
-        ResultTypes = func.Outputs |> List.map (lltypes structs) |> List.concat
+        ResultTypes = func.Outputs |> List.collect (lltypes structs)
         Locals = [("$etemp1", I32); ("$etemp2", I32)]
         Instructions = func.Instructions |> compileInstructions
         Export = Some(func.Name)
+    }
+
+let compileImport structs (import: EImport) =
+    {
+        WatImport.Source = import.SourceModule
+        Name = import.Name
+        ParameterTypes = import.Inputs |> List.collect (lltypes structs)
+        ResultTypes = import.Outputs |> List.collect (lltypes structs)
     }
 
 let partition syntaxItems =
@@ -76,14 +82,19 @@ let partition syntaxItems =
         function
         | Struct(x) -> Some(x)
         | _         -> None
+    let asImport =
+        function
+        | Import(x) -> Some(x)
+        | _         -> None
     let funcs = syntaxItems |> List.choose asFunc
     let structs = syntaxItems |> List.choose asStruct
-    (funcs, structs)
+    let imports = syntaxItems |> List.choose asImport
+    (funcs, structs, imports)
 
 let compileModule syntaxItems =
-    let (funcs, structs) = partition syntaxItems
+    let (funcs, structs, imports) = partition syntaxItems
     {
         Functions = funcs |> List.map (compileFunc structs)
-        Imports = []
+        Imports = imports |> List.map (compileImport structs)
         Data = []
     }
