@@ -10,6 +10,8 @@ open WatModule
 let etemp1 = LocalId("$etemp1")
 let etemp2 = LocalId("$etemp2")
 
+let funcId ename = FuncId(sprintf "$%s" ename)
+
 let compileInstruction (EInstruction instruction) =
     match instruction with
     | "+"     -> [WasmInstruction.I32Add]
@@ -17,7 +19,7 @@ let compileInstruction (EInstruction instruction) =
     | "*"     -> [WasmInstruction.I32Mul]
     | "dup"   -> [WasmInstruction.LocalTee(etemp1); WasmInstruction.LocalGet(etemp1)]
     | "swap"  -> [WasmInstruction.LocalSet(etemp1); WasmInstruction.LocalSet(etemp2); WasmInstruction.LocalGet(etemp1); WasmInstruction.LocalGet(etemp2)]
-    | _       -> raise (System.ArgumentException("instruction"))
+    | _       -> [WasmInstruction.Call(funcId(instruction))]
 
 let compileInstructions (instructions: EInstruction list) =
     List.collect compileInstruction instructions
