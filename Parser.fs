@@ -60,6 +60,9 @@ let makeETextData addr text = {
     Data = EDataValue.Text text
 }
 
+let makeComment _ = ESyntaxItem.Comment
+let makeCommentInstr _ = EInstruction.Comment
+
 let ws p = spaces >>. p .>> spaces
 let lit s = pstring s
 let litw s = ws (lit s)
@@ -79,6 +82,10 @@ let sqbracketed p = betweenStrings "[" "]" p
 
 let quotedText = betweenStrings "\"" "\"" (regex "[^\"]+")
 
+// TODO: support comments within functions without cheating
+let comment = spaces >>. pchar '#' .>> (restOfLine true) |>> makeComment
+let commentInstr = comment |>> makeCommentInstr
+
 let isNameStart c = isAsciiLetter c || (c = '$')
 let nameOptions = IdentifierOptions(isAsciiIdStart = isNameStart)
 let typeNameOptions = IdentifierOptions(isAsciiIdStart = isAsciiLetter)
@@ -90,8 +97,6 @@ let param = bracketed (spaced2 name typeName makeParameter)
 let result = litw "->" >>. typeName
 
 let instruction = pipe2 (regex "[._a-zA-Z0-9]+") (opt (sp1 >>. regex "[a-zA-Z0-9$]+")) makeInstruction
-// let instructions = braced (regex "[^}]*") |>> (fun (s: string) -> s.Split("\n") |> List.ofArray) // (sepBy (sp >>. instruction .>> sp) newline)
-// let instructions = spaces >>. pchar '{' >>. spaces >>. (sepBy (regex "[a-zA-Z0-9$._]+") spaces) .>> spaces .>> pchar '}' .>> spaces
 let instructions = braced (sepEndBy instruction spaces1)
 
 let funcbody = spaced4 name (many param) (opt result) instructions makeFunc
@@ -103,9 +108,9 @@ let emodule = bracketed (litw "module" >>. modulebody)
 let types = sqbracketed (sepEndBy typeName spaces)
 let signature = types .>> litw "->" .>>. types 
 
-let isEInstructionChar c = not(System.Char.IsWhiteSpace(c) || (c = '}'))
+let isEInstructionChar c = not(System.Char.IsWhiteSpace(c) || (c = '}') || (c = '#'))
 let einstruction = many1Satisfy isEInstructionChar |>> EInstruction
-let einstructions = braced (sepEndBy einstruction spaces)
+let einstructions = braced (sepEndBy (einstruction <|> commentInstr) spaces)
 
 let efuncbody = pipe3 name signature einstructions makeEFunc
 let efunc = litw "func" >>. efuncbody
@@ -131,7 +136,7 @@ let eimportitem = eimport |>> Import
 let econstitem = econst |>> Const
 let edataitem = edata |>> Data
 
-let edecl = efuncitem <|> estructitem <|> eimportitem <|> econstitem <|> edataitem
+let edecl = efuncitem <|> estructitem <|> eimportitem <|> econstitem <|> edataitem <|> comment
 let eprog = sepEndBy edecl spaces
 
 let parseModule str =

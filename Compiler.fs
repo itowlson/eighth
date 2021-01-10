@@ -32,7 +32,7 @@ let compileRef consts s =
     | LocalRef r        -> [WasmInstruction.LocalGet(LocalId(r))]
     | _                 -> [WasmInstruction.Call(funcId(s))]
 
-let compileInstruction consts (EInstruction instruction) =
+let compileInstruction consts instruction =
     match instruction with
     | "+"     -> [WasmInstruction.I32Add]
     | "-"     -> [WasmInstruction.I32Sub]
@@ -43,8 +43,14 @@ let compileInstruction consts (EInstruction instruction) =
     | "swap"  -> [WasmInstruction.LocalSet(etemp1); WasmInstruction.LocalSet(etemp2); WasmInstruction.LocalGet(etemp1); WasmInstruction.LocalGet(etemp2)]
     | _       -> compileRef consts instruction
 
+let asInstruction =
+    function
+    | EInstruction s       -> Some s
+    | EInstruction.Comment -> None
+
 let compileInstructions consts (instructions: EInstruction list) =
-    List.collect (compileInstruction consts) instructions
+    let actualInstructions = instructions |> List.choose asInstruction
+    List.collect (compileInstruction consts) actualInstructions
 
 let rec flattenStruct (structs: EStruct list) estruct =
     estruct.Fields |> List.collect (fun field ->

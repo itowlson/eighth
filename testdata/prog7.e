@@ -1,9 +1,10 @@
 import wasi_unstable fd_write [i32 i32 i32 i32] -> [i32]
 
-const HSTDOUT i32 1
+const HSTDOUT i32 1  # standard output
 const PRINT_MEM i32 0
 const PRINT_NWRITTEN_BUF i32 10000
 
+# unused for now
 const FW_START i32 80
 
 data 40 "hello world\n"
@@ -15,8 +16,8 @@ struct str {
 }
 
 func write_line [str] -> [] {
-    PRINT_MEM     $0.$ptr store
-    PRINT_MEM 4 + $0.$len store
+    PRINT_MEM     $0.$ptr store  # addr at offset 0
+    PRINT_MEM 4 + $0.$len store  # len at offset 4
     HSTDOUT PRINT_MEM 1 PRINT_NWRITTEN_BUF fd_write
     drop
 }

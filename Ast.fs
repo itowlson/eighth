@@ -32,7 +32,9 @@ type EStruct = {
     Fields: EField list
 }
 
-type EInstruction = EInstruction of string
+type EInstruction =
+| EInstruction of string
+| Comment
 
 type EFunc = {
     Name: string
@@ -69,3 +71,4 @@ type ESyntaxItem =
 | Import of EImport
 | Const of EConst
 | Data of EData
+| Comment
