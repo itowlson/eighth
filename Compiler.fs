@@ -6,6 +6,7 @@ open WasmTypes
 open WasmInstruction
 open WatImport
 open WatFunction
+open WatData
 open WatModule
 
 let etemp1 = LocalId("$etemp1")
@@ -13,23 +14,37 @@ let etemp2 = LocalId("$etemp2")
 
 let funcId ename = FuncId(sprintf "$%s" ename)
 
-let compileRef (s: string) =
-    if s.StartsWith("$") then
-        [WasmInstruction.LocalGet(LocalId(s))]
-    else
-        [WasmInstruction.Call(funcId(s))]
+let (|NumLiteral|_|) (s: string) =
+    match System.Int32.TryParse(s) with
+    | (true, n) -> Some n
+    | _         -> None
 
-let compileInstruction (EInstruction instruction) =
+let (|ConstRef|_|) (consts: EConst list) s =
+    consts |> List.tryFind (fun c -> c.Name = s)
+
+let (|LocalRef|_|) (s: string) =
+    if s.StartsWith("$") then Some(s) else None
+
+let compileRef consts s =
+    match s with
+    | NumLiteral n      -> [WasmInstruction.I32Const(n)]
+    | ConstRef consts c -> [WasmInstruction.I32Const(c.Value)]
+    | LocalRef r        -> [WasmInstruction.LocalGet(LocalId(r))]
+    | _                 -> [WasmInstruction.Call(funcId(s))]
+
+let compileInstruction consts (EInstruction instruction) =
     match instruction with
     | "+"     -> [WasmInstruction.I32Add]
     | "-"     -> [WasmInstruction.I32Sub]
     | "*"     -> [WasmInstruction.I32Mul]
+    | "store" -> [WasmInstruction.I32Store]
+    | "drop"  -> [WasmInstruction.Drop]
     | "dup"   -> [WasmInstruction.LocalTee(etemp1); WasmInstruction.LocalGet(etemp1)]
     | "swap"  -> [WasmInstruction.LocalSet(etemp1); WasmInstruction.LocalSet(etemp2); WasmInstruction.LocalGet(etemp1); WasmInstruction.LocalGet(etemp2)]
-    | _       -> compileRef instruction
+    | _       -> compileRef consts instruction
 
-let compileInstructions (instructions: EInstruction list) =
-    List.collect compileInstruction instructions
+let compileInstructions consts (instructions: EInstruction list) =
+    List.collect (compileInstruction consts) instructions
 
 let rec flattenStruct (structs: EStruct list) estruct =
     estruct.Fields |> List.collect (fun field ->
@@ -55,13 +70,13 @@ let llparameters (structs: EStruct list) argIndex (TypeName ty) =
     | Some(typedef) -> flattenParamStruct structs (sprintf "$%d" argIndex) typedef
     | None -> [(sprintf "$%d" argIndex, I32)]
 
-let compileFunc structs (func: EFunc) =
+let compileFunc structs consts (func: EFunc) =
     {
         WatFunction.Name = sprintf "$%s" func.Name
         Parameters = func.Inputs |> List.mapi (llparameters structs) |> List.concat
         ResultTypes = func.Outputs |> List.collect (lltypes structs)
         Locals = [("$etemp1", I32); ("$etemp2", I32)]
-        Instructions = func.Instructions |> compileInstructions
+        Instructions = func.Instructions |> compileInstructions consts
         Export = Some(func.Name)
     }
 
@@ -71,6 +86,17 @@ let compileImport structs (import: EImport) =
         Name = import.Name
         ParameterTypes = import.Inputs |> List.collect (lltypes structs)
         ResultTypes = import.Outputs |> List.collect (lltypes structs)
+    }
+
+let compileDataContent =
+    function
+    | Text(s) -> StringContent s
+    | Raw(by) -> RawContent by
+
+let compileData (data: EData) =
+    {
+        Offset = data.Address
+        Content = compileDataContent data.Data
     }
 
 let partition syntaxItems =
@@ -86,15 +112,25 @@ let partition syntaxItems =
         function
         | Import(x) -> Some(x)
         | _         -> None
+    let asConst =
+        function
+        | Const(x) -> Some(x)
+        | _        -> None
+    let asData =
+        function
+        | Data(x)  -> Some(x)
+        | _        -> None
     let funcs = syntaxItems |> List.choose asFunc
     let structs = syntaxItems |> List.choose asStruct
     let imports = syntaxItems |> List.choose asImport
-    (funcs, structs, imports)
+    let consts = syntaxItems |> List.choose asConst
+    let datas = syntaxItems |> List.choose asData
+    (funcs, structs, imports, consts, datas)
 
 let compileModule syntaxItems =
-    let (funcs, structs, imports) = partition syntaxItems
+    let (funcs, structs, imports, consts, datas) = partition syntaxItems
     {
-        Functions = funcs |> List.map (compileFunc structs)
+        Functions = funcs |> List.map (compileFunc structs consts)
         Imports = imports |> List.map (compileImport structs)
-        Data = []
+        Data = datas |> List.map compileData
     }

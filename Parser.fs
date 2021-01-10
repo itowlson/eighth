@@ -49,6 +49,17 @@ let makeEImport modname name (inputs, outputs) = {
     Outputs = outputs
 }
 
+let makeEConst name typeName value = {
+    Name = name
+    ConstType = typeName
+    Value = value
+}
+
+let makeETextData addr text = {
+    Address = addr
+    Data = EDataValue.Text text
+}
+
 let ws p = spaces >>. p .>> spaces
 let lit s = pstring s
 let litw s = ws (lit s)
@@ -65,6 +76,8 @@ let betweenStrings s1 s2 p = litw s1 >>. p .>> litw s2
 let bracketed p = betweenStrings "(" ")" p
 let braced p = betweenStrings "{" "}" p
 let sqbracketed p = betweenStrings "[" "]" p
+
+let quotedText = betweenStrings "\"" "\"" (regex "[^\"]+")
 
 let isNameStart c = isAsciiLetter c || (c = '$')
 let nameOptions = IdentifierOptions(isAsciiIdStart = isNameStart)
@@ -106,11 +119,19 @@ let estruct = litw "struct" >>. estructbody
 let eimportbody = spaced3 name name signature makeEImport
 let eimport = litw "import" >>. eimportbody
 
+let econstbody = spaced3 name typeName pint32 makeEConst 
+let econst = litw "const" >>. econstbody
+
+let etextdatabody = spaced2 pint32 quotedText makeETextData 
+let edata = litw "data" >>. etextdatabody
+
 let efuncitem = efunc |>> Func
 let estructitem = estruct |>> Struct
 let eimportitem = eimport |>> Import
+let econstitem = econst |>> Const
+let edataitem = edata |>> Data
 
-let edecl = efuncitem <|> estructitem <|> eimportitem
+let edecl = efuncitem <|> estructitem <|> eimportitem <|> econstitem <|> edataitem
 let eprog = sepEndBy edecl spaces
 
 let parseModule str =

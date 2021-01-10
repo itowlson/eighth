@@ -47,7 +47,25 @@ type EImport = {
     Inputs: TypeName list
     Outputs: TypeName list
 }
+
+type EConst = {
+    Name: string
+    ConstType: TypeName
+    Value: int
+}
+
+type EDataValue =
+| Text of string
+| Raw of byte array
+
+type EData = {
+    Address: int
+    Data: EDataValue
+}
+
 type ESyntaxItem =
 | Func of EFunc
 | Struct of EStruct
 | Import of EImport
+| Const of EConst
+| Data of EData
