@@ -9,8 +9,17 @@ open WatFunction
 open WatData
 open WatModule
 
+type BlockKind =
+| Loop
+
+type BlockedInstruction =
+| BInstruction of string
+| Block of BlockKind * BlockedInstruction list
+
 let etemp1 = LocalId("$etemp1")
 let etemp2 = LocalId("$etemp2")
+let lc = LocalId("$lc")  // will need to be able to nest these
+let lstash = LocalId("$lstash")  // will need to be able to nest these
 
 let funcId ename = FuncId(sprintf "$%s" ename)
 
@@ -32,24 +41,59 @@ let compileRef consts s =
     | LocalRef r        -> [WasmInstruction.LocalGet(LocalId(r))]
     | _                 -> [WasmInstruction.Call(funcId(s))]
 
-let compileInstruction consts instruction =
+let loopPrologue = [
+            WasmInstruction.LocalSet(lstash)
+            WasmInstruction.LocalSet(lc)
+            WasmInstruction.Block( (* how to detect block type? *) )
+            WasmInstruction.Loop( (* how to detect block type? *) )
+        ]
+
+let loopEpilogue = [
+            WasmInstruction.LocalGet(lc)
+            WasmInstruction.I32Const(1)
+            WasmInstruction.I32Add
+            WasmInstruction.LocalTee(lc)
+            WasmInstruction.LocalGet(lstash)
+            WasmInstruction.I32GreaterThanS
+            WasmInstruction.BreakIf(1)
+            WasmInstruction.Break(0)
+            WasmInstruction.End
+            WasmInstruction.End
+        ]
+
+let rec compileInstruction consts instruction =
     match instruction with
-    | "+"     -> [WasmInstruction.I32Add]
-    | "-"     -> [WasmInstruction.I32Sub]
-    | "*"     -> [WasmInstruction.I32Mul]
-    | "store" -> [WasmInstruction.I32Store]
-    | "drop"  -> [WasmInstruction.Drop]
-    | "dup"   -> [WasmInstruction.LocalTee(etemp1); WasmInstruction.LocalGet(etemp1)]
-    | "swap"  -> [WasmInstruction.LocalSet(etemp1); WasmInstruction.LocalSet(etemp2); WasmInstruction.LocalGet(etemp1); WasmInstruction.LocalGet(etemp2)]
-    | _       -> compileRef consts instruction
+    | BInstruction name ->
+        match name with
+        | "+"     -> [WasmInstruction.I32Add]
+        | "-"     -> [WasmInstruction.I32Sub]
+        | "*"     -> [WasmInstruction.I32Mul]
+        | "store" -> [WasmInstruction.I32Store]
+        | "drop"  -> [WasmInstruction.Drop]
+        | "dup"   -> [WasmInstruction.LocalTee(etemp1); WasmInstruction.LocalGet(etemp1)]
+        | "swap"  -> [WasmInstruction.LocalSet(etemp1); WasmInstruction.LocalSet(etemp2); WasmInstruction.LocalGet(etemp1); WasmInstruction.LocalGet(etemp2)]
+        | "index" -> [WasmInstruction.LocalGet(lc)]
+        | _       -> compileRef consts name
+    | Block(Loop, body) -> loopPrologue @ (body |> List.collect (compileInstruction consts)) @ loopEpilogue
 
 let asInstruction =
     function
     | EInstruction s       -> Some s
     | EInstruction.Comment -> None
 
+let emblocken instructions =
+    let rec emblockenOnto (acc: BlockedInstruction list) (instructions: string list) =
+        match instructions with
+        | [] -> (acc, [])
+        | "do" :: rest -> let (blockBody, rest') = emblockenOnto [] rest
+                          let block = Block(Loop, (List.rev blockBody))
+                          emblockenOnto (block :: acc) rest'
+        | "loop" :: rest -> (acc, rest)
+        | instr :: rest -> emblockenOnto ((BInstruction instr) :: acc) rest
+    instructions |> emblockenOnto [] |> fst |> List.rev
+
 let compileInstructions consts (instructions: EInstruction list) =
-    let actualInstructions = instructions |> List.choose asInstruction
+    let actualInstructions = instructions |> List.choose asInstruction |> emblocken
     List.collect (compileInstruction consts) actualInstructions
 
 let rec flattenStruct (structs: EStruct list) estruct =
@@ -81,7 +125,7 @@ let compileFunc structs consts (func: EFunc) =
         WatFunction.Name = sprintf "$%s" func.Name
         Parameters = func.Inputs |> List.mapi (llparameters structs) |> List.concat
         ResultTypes = func.Outputs |> List.collect (lltypes structs)
-        Locals = [("$etemp1", I32); ("$etemp2", I32)]
+        Locals = [("$etemp1", I32); ("$etemp2", I32); ("$lc", I32); ("$lstash", I32)]
         Instructions = func.Instructions |> compileInstructions consts
         Export = Some(func.Name)
     }

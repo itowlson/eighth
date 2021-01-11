@@ -58,6 +58,9 @@ let writeInstruction writer instruction =
         | LocalTee(index) -> sprintf "local.tee %s" (indexText index)
         | I32Const(value) -> sprintf "i32.const %d" value
         | I32Store -> "i32.store"
+        | I32Load8u -> "i32.load8_u"
+        | I32Store8 -> "i32.store8"
+        | I32GreaterThanS -> "i32.gt_s"
         | I32Add -> "i32.add"
         | I32Sub -> "i32.sub"
         | I32Mul -> "i32.mul"
@@ -67,6 +70,11 @@ let writeInstruction writer instruction =
                 | FuncIndex(n) -> n.ToString()
                 | FuncId(s) -> s
             sprintf "call %s" argtext
+        | Block() -> "block (param i32) (result i32)"
+        | Loop() -> "loop (param i32) (result i32)"
+        | End -> "end"
+        | BreakIf(idx) -> sprintf "br_if %d" idx
+        | Break(idx) -> sprintf "br %d" idx
         | Drop -> "drop"
     writeLine writer text
 
