@@ -10,6 +10,7 @@ open WatData
 open WatModule
 
 type BlockKind =
+| NoBlock
 | Loop
 
 type BlockedInstruction =
@@ -75,22 +76,25 @@ let rec compileInstruction consts instruction =
         | "index" -> [WasmInstruction.LocalGet(lc)]
         | _       -> compileRef consts name
     | Block(Loop, body) -> loopPrologue @ (body |> List.collect (compileInstruction consts)) @ loopEpilogue
+    | Block(NoBlock, body) -> raise (System.InvalidOperationException("not expecting NoBlock at top level"))
 
 let asInstruction =
     function
     | EInstruction s       -> Some s
     | EInstruction.Comment -> None
 
+let fst3 (a, _, _) = a
+
 let emblocken instructions =
     let rec emblockenOnto (acc: BlockedInstruction list) (instructions: string list) =
         match instructions with
-        | [] -> (acc, [])
-        | "do" :: rest -> let (blockBody, rest') = emblockenOnto [] rest
-                          let block = Block(Loop, (List.rev blockBody))
+        | [] -> (acc, [], NoBlock)
+        | "do" :: rest -> let (blockBody, rest', kind) = emblockenOnto [] rest
+                          let block = Block(kind, (List.rev blockBody))
                           emblockenOnto (block :: acc) rest'
-        | "loop" :: rest -> (acc, rest)
+        | "loop" :: rest -> (acc, rest, BlockKind.Loop)
         | instr :: rest -> emblockenOnto ((BInstruction instr) :: acc) rest
-    instructions |> emblockenOnto [] |> fst |> List.rev
+    instructions |> emblockenOnto [] |> fst3 |> List.rev
 
 let compileInstructions consts (instructions: EInstruction list) =
     let actualInstructions = instructions |> List.choose asInstruction |> emblocken
