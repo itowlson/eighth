@@ -9,99 +9,6 @@ open WatFunction
 open WatData
 open WatModule
 
-type BlockKind =
-| NoBlock
-| Loop
-
-type BlockedInstruction =
-| BInstruction of string
-| Block of BlockKind * BlockedInstruction list
-
-let etemp1 = LocalId("$etemp1")
-let etemp2 = LocalId("$etemp2")
-let lc = LocalId("$lc")  // will need to be able to nest these
-let lstash = LocalId("$lstash")  // will need to be able to nest these
-
-let funcId ename = FuncId(sprintf "$%s" ename)
-
-let (|NumLiteral|_|) (s: string) =
-    match System.Int32.TryParse(s) with
-    | (true, n) -> Some n
-    | _         -> None
-
-let (|ConstRef|_|) (consts: EConst list) s =
-    consts |> List.tryFind (fun c -> c.Name = s)
-
-let (|LocalRef|_|) (s: string) =
-    if s.StartsWith("$") then Some(s) else None
-
-let compileRef consts s =
-    match s with
-    | NumLiteral n      -> [WasmInstruction.I32Const(n)]
-    | ConstRef consts c -> [WasmInstruction.I32Const(c.Value)]
-    | LocalRef r        -> [WasmInstruction.LocalGet(LocalId(r))]
-    | _                 -> [WasmInstruction.Call(funcId(s))]
-
-let loopPrologue = [
-            WasmInstruction.LocalSet(lstash)
-            WasmInstruction.LocalSet(lc)
-            WasmInstruction.Block( (* how to detect block type? *) )
-            WasmInstruction.Loop( (* how to detect block type? *) )
-        ]
-
-let loopEpilogue = [
-            WasmInstruction.LocalGet(lc)
-            WasmInstruction.I32Const(1)
-            WasmInstruction.I32Add
-            WasmInstruction.LocalTee(lc)
-            WasmInstruction.LocalGet(lstash)
-            WasmInstruction.I32GreaterThanS
-            WasmInstruction.BreakIf(1)
-            WasmInstruction.Break(0)
-            WasmInstruction.End
-            WasmInstruction.End
-        ]
-
-let rec compileInstruction consts instruction =
-    match instruction with
-    | BInstruction name ->
-        match name with
-        | "+"     -> [WasmInstruction.I32Add]
-        | "-"     -> [WasmInstruction.I32Sub]
-        | "*"     -> [WasmInstruction.I32Mul]
-        | "store" -> [WasmInstruction.I32Store]
-        | "load8u" -> [WasmInstruction.I32Load8u]
-        | "store8" -> [WasmInstruction.I32Store8]
-        | "drop"  -> [WasmInstruction.Drop]
-        | "dup"   -> [WasmInstruction.LocalTee(etemp1); WasmInstruction.LocalGet(etemp1)]
-        | "swap"  -> [WasmInstruction.LocalSet(etemp1); WasmInstruction.LocalSet(etemp2); WasmInstruction.LocalGet(etemp1); WasmInstruction.LocalGet(etemp2)]
-        | "index" -> [WasmInstruction.LocalGet(lc)]
-        | _       -> compileRef consts name
-    | Block(Loop, body) -> loopPrologue @ (body |> List.collect (compileInstruction consts)) @ loopEpilogue
-    | Block(NoBlock, body) -> raise (System.InvalidOperationException("not expecting NoBlock at top level"))
-
-let asInstruction =
-    function
-    | EInstruction s       -> Some s
-    | EInstruction.Comment -> None
-
-let fst3 (a, _, _) = a
-
-let emblocken instructions =
-    let rec emblockenOnto (acc: BlockedInstruction list) (instructions: string list) =
-        match instructions with
-        | [] -> (acc, [], NoBlock)
-        | "do" :: rest -> let (blockBody, rest', kind) = emblockenOnto [] rest
-                          let block = Block(kind, (List.rev blockBody))
-                          emblockenOnto (block :: acc) rest'
-        | "loop" :: rest -> (acc, rest, BlockKind.Loop)
-        | instr :: rest -> emblockenOnto ((BInstruction instr) :: acc) rest
-    instructions |> emblockenOnto [] |> fst3 |> List.rev
-
-let compileInstructions consts (instructions: EInstruction list) =
-    let actualInstructions = instructions |> List.choose asInstruction |> emblocken
-    List.collect (compileInstruction consts) actualInstructions
-
 let rec flattenStruct (structs: EStruct list) estruct =
     estruct.Fields |> List.collect (fun field ->
         match structs |> List.tryFind (fun s -> (TypeName s.Name) = field.FieldType) with
@@ -126,13 +33,118 @@ let llparameters (structs: EStruct list) argIndex (TypeName ty) =
     | Some(typedef) -> flattenParamStruct structs (sprintf "$%d" argIndex) typedef
     | None -> [(sprintf "$%d" argIndex, I32)]
 
-let compileFunc structs consts (func: EFunc) =
+type Definitions = {
+    Consts: EConst list
+    Structs: EStruct list
+}
+
+type BlockKind =
+| NoBlock
+| Loop
+
+type BlockedInstruction =
+| BInstruction of string
+| Block of BlockKind * BlockedInstruction list
+
+let etemp1 = LocalId("$etemp1")
+let etemp2 = LocalId("$etemp2")
+let lc = LocalId("$lc")  // will need to be able to nest these
+let lstash = LocalId("$lstash")  // will need to be able to nest these
+
+let funcId ename = FuncId(sprintf "$%s" ename)
+
+let (|NumLiteral|_|) (s: string) =
+    match System.Int32.TryParse(s) with
+    | (true, n) -> Some n
+    | _         -> None
+
+let (|ConstRef|_|) defns s =
+    (defns.Consts) |> List.tryFind (fun c -> c.Name = s)
+
+let (|LocalRef|_|) (s: string) =
+    if s.StartsWith("$") then Some(s) else None
+
+let compileRef defns localtypes s =
+    match s with
+    | NumLiteral n      -> [WasmInstruction.I32Const(n)]
+    | ConstRef defns c  -> [WasmInstruction.I32Const(c.Value)]
+    | LocalRef r        -> match List.tryFind (fun (n, _) -> n = r) localtypes with
+                           | None -> [WasmInstruction.LocalGet(LocalId(r))]  // this probably shouldn't happen
+                           | Some(_, TypeName ty) ->
+                                match (defns.Structs) |> List.tryFind (fun es -> es.Name = ty) with
+                                | None -> [WasmInstruction.LocalGet(LocalId(r))]  // not a custom type
+                                | Some(typedef) -> let members = flattenParamStruct (defns.Structs) r typedef
+                                                   members |> List.map (fun (name, _) -> WasmInstruction.LocalGet(LocalId(name)))
+    | _                 -> [WasmInstruction.Call(funcId(s))]
+
+let loopPrologue = [
+            WasmInstruction.LocalSet(lstash)
+            WasmInstruction.LocalSet(lc)
+            WasmInstruction.Block( (* how to detect block type? *) )
+            WasmInstruction.Loop( (* how to detect block type? *) )
+        ]
+
+let loopEpilogue = [
+            WasmInstruction.LocalGet(lc)
+            WasmInstruction.I32Const(1)
+            WasmInstruction.I32Add
+            WasmInstruction.LocalTee(lc)
+            WasmInstruction.LocalGet(lstash)
+            WasmInstruction.I32GreaterThanS
+            WasmInstruction.BreakIf(1)
+            WasmInstruction.Break(0)
+            WasmInstruction.End
+            WasmInstruction.End
+        ]
+
+let rec compileInstruction defns localtypes instruction =
+    match instruction with
+    | BInstruction name ->
+        match name with
+        | "+"     -> [WasmInstruction.I32Add]
+        | "-"     -> [WasmInstruction.I32Sub]
+        | "*"     -> [WasmInstruction.I32Mul]
+        | "store" -> [WasmInstruction.I32Store]
+        | "load8u" -> [WasmInstruction.I32Load8u]
+        | "store8" -> [WasmInstruction.I32Store8]
+        | "drop"  -> [WasmInstruction.Drop]
+        | "dup"   -> [WasmInstruction.LocalTee(etemp1); WasmInstruction.LocalGet(etemp1)]
+        | "swap"  -> [WasmInstruction.LocalSet(etemp1); WasmInstruction.LocalSet(etemp2); WasmInstruction.LocalGet(etemp1); WasmInstruction.LocalGet(etemp2)]
+        | "index" -> [WasmInstruction.LocalGet(lc)]
+        | _       -> compileRef defns localtypes name
+    | Block(Loop, body) -> loopPrologue @ (body |> List.collect (compileInstruction defns localtypes)) @ loopEpilogue
+    | Block(NoBlock, body) -> raise (System.InvalidOperationException("not expecting NoBlock at top level"))
+
+let asInstruction =
+    function
+    | EInstruction s       -> Some s
+    | EInstruction.Comment -> None
+
+let fst3 (a, _, _) = a
+
+let emblocken instructions =
+    let rec emblockenOnto (acc: BlockedInstruction list) (instructions: string list) =
+        match instructions with
+        | [] -> (acc, [], NoBlock)
+        | "do" :: rest -> let (blockBody, rest', kind) = emblockenOnto [] rest
+                          let block = Block(kind, (List.rev blockBody))
+                          emblockenOnto (block :: acc) rest'
+        | "loop" :: rest -> (acc, rest, BlockKind.Loop)
+        | instr :: rest -> emblockenOnto ((BInstruction instr) :: acc) rest
+    instructions |> emblockenOnto [] |> fst3 |> List.rev
+
+let compileInstructions consts localtypes (instructions: EInstruction list) =
+    let actualInstructions = instructions |> List.choose asInstruction |> emblocken
+    List.collect (compileInstruction consts localtypes) actualInstructions
+
+let compileFunc defns (func: EFunc) =
+    let localtypes = func.Inputs |> List.mapi (fun index ty -> ((sprintf "$%d" index), ty))
     {
         WatFunction.Name = sprintf "$%s" func.Name
-        Parameters = func.Inputs |> List.mapi (llparameters structs) |> List.concat
-        ResultTypes = func.Outputs |> List.collect (lltypes structs)
+        Parameters = func.Inputs |> List.mapi (llparameters (defns.Structs)) |> List.concat
+        ResultTypes = func.Outputs |> List.collect (lltypes (defns.Structs))
         Locals = [("$etemp1", I32); ("$etemp2", I32); ("$lc", I32); ("$lstash", I32)]
-        Instructions = func.Instructions |> compileInstructions consts
+        Instructions = func.Instructions |> compileInstructions defns localtypes
         Export = Some(func.Name)
     }
 
@@ -185,8 +197,9 @@ let partition syntaxItems =
 
 let compileModule syntaxItems =
     let (funcs, structs, imports, consts, datas) = partition syntaxItems
+    let defns = { Consts = consts; Structs = structs }
     {
-        Functions = funcs |> List.map (compileFunc structs consts)
+        Functions = funcs |> List.map (compileFunc defns)
         Imports = imports |> List.map (compileImport structs)
         Data = datas |> List.map compileData
     }

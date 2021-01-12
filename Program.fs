@@ -19,7 +19,7 @@ We want the output to be a Wasm func:
 
 [<EntryPoint>]
 let main argv =
-    let text = System.IO.File.ReadAllText("./testdata/prog9.e")
+    let text = System.IO.File.ReadAllText("./testdata/prog9a.e")
     match parseeprog text with
     | Ok(m) ->  printfn "%A" m
                 let wat = compileModule m
