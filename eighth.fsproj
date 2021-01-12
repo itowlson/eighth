@@ -9,6 +9,7 @@
     <Compile Include="watmaker/WatImport.fs" />
     <Compile Include="watmaker/WatFunction.fs" />
     <Compile Include="watmaker/WatData.fs" />
+    <Compile Include="watmaker/WatGlobal.fs" />
     <Compile Include="watmaker/WatModule.fs" />
     <Compile Include="watmaker/WatWriter.fs" />
     <Compile Include="Result.fs" />

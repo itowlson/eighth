@@ -65,10 +65,17 @@ type EData = {
     Data: EDataValue
 }
 
+type EGlobal = {
+    Name: string
+    GlobalType: TypeName
+    InitialValue: int
+}
+
 type ESyntaxItem =
 | Func of EFunc
 | Struct of EStruct
 | Import of EImport
 | Const of EConst
 | Data of EData
+| Global of EGlobal
 | Comment

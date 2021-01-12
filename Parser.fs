@@ -60,6 +60,12 @@ let makeETextData addr text = {
     Data = EDataValue.Text text
 }
 
+let makeEGlobal name typeName value = {
+    Name = name
+    GlobalType = typeName
+    InitialValue = value
+}
+
 let makeComment _ = ESyntaxItem.Comment
 let makeCommentInstr _ = EInstruction.Comment
 
@@ -130,13 +136,17 @@ let econst = litw "const" >>. econstbody
 let etextdatabody = spaced2 pint32 quotedText makeETextData 
 let edata = litw "data" >>. etextdatabody
 
+let eglobalbody = spaced3 name typeName pint32 makeEGlobal
+let eglobal = litw "global" >>. eglobalbody
+
 let efuncitem = efunc |>> Func
 let estructitem = estruct |>> Struct
 let eimportitem = eimport |>> Import
 let econstitem = econst |>> Const
 let edataitem = edata |>> Data
+let eglobalitem = eglobal |>> Global
 
-let edecl = efuncitem <|> estructitem <|> eimportitem <|> econstitem <|> edataitem <|> comment
+let edecl = efuncitem <|> estructitem <|> eimportitem <|> econstitem <|> edataitem <|> eglobalitem <|> comment
 let eprog = sepEndBy edecl spaces
 
 let parseModule str =

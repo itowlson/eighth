@@ -7,6 +7,7 @@ open WasmInstruction
 open WatImport
 open WatFunction
 open WatData
+open WatGlobal
 open WatModule
 
 type WatWriter = {
@@ -49,6 +50,9 @@ let indexText =
     function
     | LocalIndex(n) -> n.ToString()
     | LocalId(s) -> s
+let gindexText =
+    function
+    | GlobalId(s) -> s
 
 let writeInstruction writer instruction =
     let text = 
@@ -56,6 +60,8 @@ let writeInstruction writer instruction =
         | LocalGet(index) -> sprintf "local.get %s" (indexText index)
         | LocalSet(index) -> sprintf "local.set %s" (indexText index)
         | LocalTee(index) -> sprintf "local.tee %s" (indexText index)
+        | GlobalGet(index) -> sprintf "global.get %s" (gindexText index)
+        | GlobalSet(index) -> sprintf "global.set %s" (gindexText index)
         | I32Const(value) -> sprintf "i32.const %d" value
         | I32Store -> "i32.store"
         | I32Load8u -> "i32.load8_u"
@@ -115,6 +121,10 @@ let writeData writer watData =
     )
     writeLine writer ")"
 
+let writeGlobal writer watGlobal =
+    let typetext = if watGlobal.IsMutable then "(mut i32)" else "i32"
+    writeLine writer (sprintf "(global %s %s (i32.const %d))" watGlobal.GlobalName typetext watGlobal.InitialValue)
+
 let writeModule writer watModule =
     writeLine writer "(module"
     indented writer (fun writer ->
@@ -123,5 +133,6 @@ let writeModule writer watModule =
         List.iter (writeImport writer) watModule.Imports
         List.iter (writeFunction writer) watModule.Functions
         List.iter (writeData writer) watModule.Data
+        List.iter (writeGlobal writer) watModule.Globals
     )
     writeLine writer ")"

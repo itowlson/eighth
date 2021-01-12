@@ -7,6 +7,7 @@ open WasmInstruction
 open WatImport
 open WatFunction
 open WatData
+open WatGlobal
 open WatModule
 
 let rec flattenStruct (structs: EStruct list) estruct =
@@ -36,6 +37,7 @@ let llparameters (structs: EStruct list) argIndex (TypeName ty) =
 type Definitions = {
     Consts: EConst list
     Structs: EStruct list
+    Globals: EGlobal list
 }
 
 type BlockKind =
@@ -52,6 +54,7 @@ let lc = LocalId("$lc")  // will need to be able to nest these
 let lstash = LocalId("$lstash")  // will need to be able to nest these
 
 let funcId ename = FuncId(sprintf "$%s" ename)
+let globalId ename = GlobalId(sprintf "$%s" ename)
 
 let (|NumLiteral|_|) (s: string) =
     match System.Int32.TryParse(s) with
@@ -64,6 +67,12 @@ let (|ConstRef|_|) defns s =
 let (|LocalRef|_|) (s: string) =
     if s.StartsWith("$") then Some(s) else None
 
+let (|GlobalRef|_|) defns (s: string) =
+    defns.Globals |> List.tryFind (fun g -> g.Name = s)
+
+let (|GlobalSet|_|) defns (s: string) =
+    defns.Globals |> List.tryFind (fun g -> sprintf ">%s" g.Name = s)
+
 let compileRef defns localtypes s =
     match s with
     | NumLiteral n      -> [WasmInstruction.I32Const(n)]
@@ -75,6 +84,8 @@ let compileRef defns localtypes s =
                                 | None -> [WasmInstruction.LocalGet(LocalId(r))]  // not a custom type
                                 | Some(typedef) -> let members = flattenParamStruct (defns.Structs) r typedef
                                                    members |> List.map (fun (name, _) -> WasmInstruction.LocalGet(LocalId(name)))
+    | GlobalRef defns g -> [WasmInstruction.GlobalGet(globalId(g.Name))]
+    | GlobalSet defns g -> [WasmInstruction.GlobalSet(globalId(g.Name))]
     | _                 -> [WasmInstruction.Call(funcId(s))]
 
 let loopPrologue = [
@@ -167,6 +178,14 @@ let compileData (data: EData) =
         Content = compileDataContent data.Data
     }
 
+let compileGlobal (g: EGlobal) =
+    {
+        GlobalName = sprintf "$%s" g.Name
+        GlobalType = I32 // g.GlobalType
+        IsMutable = true
+        InitialValue = g.InitialValue
+    }
+
 let partition syntaxItems =
     let asFunc =
         function
@@ -184,6 +203,10 @@ let partition syntaxItems =
         function
         | Const(x) -> Some(x)
         | _        -> None
+    let asGlobal =
+        function
+        | Global(x) -> Some(x)
+        | _         -> None
     let asData =
         function
         | Data(x)  -> Some(x)
@@ -192,14 +215,16 @@ let partition syntaxItems =
     let structs = syntaxItems |> List.choose asStruct
     let imports = syntaxItems |> List.choose asImport
     let consts = syntaxItems |> List.choose asConst
+    let globals = syntaxItems |> List.choose asGlobal
     let datas = syntaxItems |> List.choose asData
-    (funcs, structs, imports, consts, datas)
+    (funcs, structs, imports, consts, globals, datas)
 
 let compileModule syntaxItems =
-    let (funcs, structs, imports, consts, datas) = partition syntaxItems
-    let defns = { Consts = consts; Structs = structs }
+    let (funcs, structs, imports, consts, globals, datas) = partition syntaxItems
+    let defns = { Consts = consts; Structs = structs; Globals = globals }
     {
         Functions = funcs |> List.map (compileFunc defns)
         Imports = imports |> List.map (compileImport structs)
         Data = datas |> List.map compileData
+        Globals = globals |> List.map compileGlobal
     }
