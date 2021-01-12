@@ -70,6 +70,8 @@ let rec compileInstruction consts instruction =
         | "-"     -> [WasmInstruction.I32Sub]
         | "*"     -> [WasmInstruction.I32Mul]
         | "store" -> [WasmInstruction.I32Store]
+        | "load8u" -> [WasmInstruction.I32Load8u]
+        | "store8" -> [WasmInstruction.I32Store8]
         | "drop"  -> [WasmInstruction.Drop]
         | "dup"   -> [WasmInstruction.LocalTee(etemp1); WasmInstruction.LocalGet(etemp1)]
         | "swap"  -> [WasmInstruction.LocalSet(etemp1); WasmInstruction.LocalSet(etemp2); WasmInstruction.LocalGet(etemp1); WasmInstruction.LocalGet(etemp2)]
