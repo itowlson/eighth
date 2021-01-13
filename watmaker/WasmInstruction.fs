@@ -23,12 +23,17 @@ type WasmInstruction =
     | I32Load8u
     | I32Store8
     | I32GreaterThanS
+    | I32LessThanS
     | Call of FuncIndex
     | I32Add
     | I32Sub
     | I32Mul
+    | I32DivS
+    | I32RemS
     | Block of unit
     | Loop of unit
+    | If of unit
+    | Else
     | End
     | BreakIf of int
     | Break of int

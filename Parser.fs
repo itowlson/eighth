@@ -86,7 +86,7 @@ let bracketed p = betweenStrings "(" ")" p
 let braced p = betweenStrings "{" "}" p
 let sqbracketed p = betweenStrings "[" "]" p
 
-let quotedText = betweenStrings "\"" "\"" (regex "[^\"]+")
+let quotedText = ws (pchar '"' >>. (regex "[^\"]+") .>> pchar '"')
 
 // TODO: support comments within functions without cheating
 let comment = spaces >>. pchar '#' .>> (restOfLine true) |>> makeComment

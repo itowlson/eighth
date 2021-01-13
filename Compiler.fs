@@ -40,13 +40,10 @@ type Definitions = {
     Globals: EGlobal list
 }
 
-type BlockKind =
-| NoBlock
-| Loop
-
 type BlockedInstruction =
 | BInstruction of string
-| Block of BlockKind * BlockedInstruction list
+| BLoop of BlockedInstruction list
+| BIf of BlockedInstruction list * BlockedInstruction list option
 
 let etemp1 = LocalId("$etemp1")
 let etemp2 = LocalId("$etemp2")
@@ -115,6 +112,10 @@ let rec compileInstruction defns localtypes instruction =
         | "+"     -> [WasmInstruction.I32Add]
         | "-"     -> [WasmInstruction.I32Sub]
         | "*"     -> [WasmInstruction.I32Mul]
+        | "/"     -> [WasmInstruction.I32DivS]
+        | "%"     -> [WasmInstruction.I32RemS]
+        | "<"     -> [WasmInstruction.I32LessThanS]
+        | ">"     -> [WasmInstruction.I32GreaterThanS]
         | "store" -> [WasmInstruction.I32Store]
         | "load8u" -> [WasmInstruction.I32Load8u]
         | "store8" -> [WasmInstruction.I32Store8]
@@ -123,8 +124,17 @@ let rec compileInstruction defns localtypes instruction =
         | "swap"  -> [WasmInstruction.LocalSet(etemp1); WasmInstruction.LocalSet(etemp2); WasmInstruction.LocalGet(etemp1); WasmInstruction.LocalGet(etemp2)]
         | "index" -> [WasmInstruction.LocalGet(lc)]
         | _       -> compileRef defns localtypes name
-    | Block(Loop, body) -> loopPrologue @ (body |> List.collect (compileInstruction defns localtypes)) @ loopEpilogue
-    | Block(NoBlock, body) -> raise (System.InvalidOperationException("not expecting NoBlock at top level"))
+    | BLoop body -> loopPrologue @ (body |> List.collect (compileInstruction defns localtypes)) @ loopEpilogue
+    | BIf (ifbody, Some elsebody) ->
+        [WasmInstruction.If( (* how to detect block type *) )] @
+        (ifbody |> List.collect (compileInstruction defns localtypes)) @
+        [WasmInstruction.Else] @
+        (elsebody |> List.collect (compileInstruction defns localtypes)) @
+        [WasmInstruction.End]
+    | BIf (ifbody, None) ->
+        [WasmInstruction.If( (* how to detect block type *) )] @
+        (ifbody |> List.collect (compileInstruction defns localtypes)) @
+        [WasmInstruction.End]
 
 let asInstruction =
     function
@@ -136,13 +146,20 @@ let fst3 (a, _, _) = a
 let emblocken instructions =
     let rec emblockenOnto (acc: BlockedInstruction list) (instructions: string list) =
         match instructions with
-        | [] -> (acc, [], NoBlock)
-        | "do" :: rest -> let (blockBody, rest', kind) = emblockenOnto [] rest
-                          let block = Block(kind, (List.rev blockBody))
-                          emblockenOnto (block :: acc) rest'
-        | "loop" :: rest -> (acc, rest, BlockKind.Loop)
+        | [] -> (acc, [])
+        | "do" :: rest -> let (block, rest') = emblockenOnto [] rest
+                          emblockenOnto (block @ acc) rest'
+        | "loop" :: rest -> ([BLoop (List.rev acc)], rest)
+        | "if" :: rest -> let (block, rest') = emblockenOnto [] rest
+                          emblockenOnto (block @ acc) rest'
+        | "else" :: rest -> let ifBody = List.rev acc
+                            let (elseBlock, rest') = emblockenOnto [] rest
+                            match elseBlock with
+                            | [BIf (body, None)] -> ([BIf(ifBody, Some body)], rest')
+                            | _ -> raise (System.InvalidOperationException("messed up the if-else logic"))
+        | "then" :: rest -> ([BIf (List.rev acc, None)], rest)
         | instr :: rest -> emblockenOnto ((BInstruction instr) :: acc) rest
-    instructions |> emblockenOnto [] |> fst3 |> List.rev
+    instructions |> emblockenOnto [] |> fst |> List.rev
 
 let compileInstructions consts localtypes (instructions: EInstruction list) =
     let actualInstructions = instructions |> List.choose asInstruction |> emblocken

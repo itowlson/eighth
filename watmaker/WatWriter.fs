@@ -66,10 +66,13 @@ let writeInstruction writer instruction =
         | I32Store -> "i32.store"
         | I32Load8u -> "i32.load8_u"
         | I32Store8 -> "i32.store8"
+        | I32LessThanS -> "i32.lt_s"
         | I32GreaterThanS -> "i32.gt_s"
         | I32Add -> "i32.add"
         | I32Sub -> "i32.sub"
         | I32Mul -> "i32.mul"
+        | I32DivS -> "i32.div_s"
+        | I32RemS -> "i32.rem_s"
         | Call(index) ->
             let argtext =
                 match index with
@@ -78,6 +81,8 @@ let writeInstruction writer instruction =
             sprintf "call %s" argtext
         | Block() -> "block (param i32) (result i32)"
         | Loop() -> "loop (param i32) (result i32)"
+        | If() -> "if (result i32 i32)"
+        | Else -> "else"
         | End -> "end"
         | BreakIf(idx) -> sprintf "br_if %d" idx
         | Break(idx) -> sprintf "br %d" idx
@@ -128,9 +133,9 @@ let writeGlobal writer watGlobal =
 let writeModule writer watModule =
     writeLine writer "(module"
     indented writer (fun writer ->
+        List.iter (writeImport writer) watModule.Imports
         writeLine writer "(memory 1)"
         writeLine writer """(export "memory" (memory 0))"""
-        List.iter (writeImport writer) watModule.Imports
         List.iter (writeFunction writer) watModule.Functions
         List.iter (writeData writer) watModule.Data
         List.iter (writeGlobal writer) watModule.Globals
