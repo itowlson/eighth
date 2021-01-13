@@ -30,9 +30,9 @@ type WasmInstruction =
     | I32Mul
     | I32DivS
     | I32RemS
-    | Block of unit
-    | Loop of unit
-    | If of unit
+    | Block of WasmType list * WasmType list
+    | Loop of WasmType list * WasmType list
+    | If of WasmType list * WasmType list
     | Else
     | End
     | BreakIf of int

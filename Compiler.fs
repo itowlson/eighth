@@ -38,12 +38,84 @@ type Definitions = {
     Consts: EConst list
     Structs: EStruct list
     Globals: EGlobal list
+    Funcs: EFunc list
 }
 
 type BlockedInstruction =
 | BInstruction of string
 | BLoop of BlockedInstruction list
 | BIf of BlockedInstruction list * BlockedInstruction list option
+
+type BlockType = {
+    Consumes: WasmType list
+    Produces: WasmType list
+}
+
+let rec btminus types1 types2 =
+    // The idea here is that types2 is known to be on the stack:
+    // what additional things need to already be there to satisfy
+    // types1?
+    match types1 with
+    | [] -> []
+    | top1 :: rest1 ->
+        match types2 with
+        | [] -> types1
+        | top2 :: rest2 ->
+            if top1 = top2 then btminus rest1 rest2 else raise (System.InvalidOperationException "impossible type handoff")
+
+let btcombine bt1 bt2 = {
+    Consumes = bt1.Consumes @ (btminus bt2.Consumes bt1.Produces)
+    Produces = (btminus bt1.Produces bt2.Consumes) @ bt2.Produces
+}
+
+
+let fromto consumes produces = {
+    Consumes = consumes
+    Produces = produces
+}
+
+let findFunc (funcs: EFunc list) funcIndex =
+    match funcIndex with
+    | FuncIndex n -> funcs |> List.tryItem (int(n))
+    | FuncId name -> funcs |> List.tryFind (fun f -> f.Name = name)
+
+// Think this might need to take a BlockedInstruction
+// rather than a WasmInstruction
+let inferType defns winstr =
+    match winstr with
+    | I32Const _
+        -> fromto [] [I32]
+    | I32Add | I32Sub | I32Mul
+    | I32DivS | I32RemS
+    | I32LessThanS | I32GreaterThanS
+        -> fromto [I32; I32] [I32]
+    | LocalGet _ | GlobalGet _
+        -> fromto [] [I32]  // todo: consider type of variable
+    | LocalSet _ | GlobalSet _
+        -> fromto [I32] []  // todo: consider type of variable
+    | LocalTee _
+        -> fromto [I32] [I32]  // todo: consider type of variable
+    | I32Store | I32Store8
+        -> fromto [I32; I32] []
+    | I32Load8u
+        -> fromto [I32] [I32]
+    | Call funcindex
+        -> match findFunc defns.Funcs funcindex with
+           | Some func -> fromto (func.Inputs |> List.collect (lltypes (defns.Structs))) (func.Outputs |> List.collect (lltypes (defns.Structs)))
+           | None -> raise (System.InvalidOperationException(sprintf "can't resolve func %A" funcindex))
+    | Block (ins, outs) | Loop (ins, outs) | If (ins, outs)
+        -> fromto ins outs
+    | BreakIf _
+        -> fromto [I32] []
+    | Break _
+        -> fromto [] []
+    | Else | End
+        -> fromto [] []
+    | Drop
+        -> fromto [I32] []  // todo: just one?
+
+let inferTypeS defns instrs =
+    instrs |> List.map (inferType defns) |> List.reduce btcombine
 
 let etemp1 = LocalId("$etemp1")
 let etemp2 = LocalId("$etemp2")
@@ -85,11 +157,11 @@ let compileRef defns localtypes s =
     | GlobalSet defns g -> [WasmInstruction.GlobalSet(globalId(g.Name))]
     | _                 -> [WasmInstruction.Call(funcId(s))]
 
-let loopPrologue = [
+let loopPrologue stackType = [
             WasmInstruction.LocalSet(lstash)
             WasmInstruction.LocalSet(lc)
-            WasmInstruction.Block( (* how to detect block type? *) )
-            WasmInstruction.Loop( (* how to detect block type? *) )
+            WasmInstruction.Block(stackType.Consumes, stackType.Produces)
+            WasmInstruction.Loop(stackType.Consumes, stackType.Produces)
         ]
 
 let loopEpilogue = [
@@ -124,17 +196,18 @@ let rec compileInstruction defns localtypes instruction =
         | "swap"  -> [WasmInstruction.LocalSet(etemp1); WasmInstruction.LocalSet(etemp2); WasmInstruction.LocalGet(etemp1); WasmInstruction.LocalGet(etemp2)]
         | "index" -> [WasmInstruction.LocalGet(lc)]
         | _       -> compileRef defns localtypes name
-    | BLoop body -> loopPrologue @ (body |> List.collect (compileInstruction defns localtypes)) @ loopEpilogue
-    | BIf (ifbody, Some elsebody) ->
-        [WasmInstruction.If( (* how to detect block type *) )] @
-        (ifbody |> List.collect (compileInstruction defns localtypes)) @
-        [WasmInstruction.Else] @
-        (elsebody |> List.collect (compileInstruction defns localtypes)) @
-        [WasmInstruction.End]
-    | BIf (ifbody, None) ->
-        [WasmInstruction.If( (* how to detect block type *) )] @
-        (ifbody |> List.collect (compileInstruction defns localtypes)) @
-        [WasmInstruction.End]
+    | BLoop body ->
+        let wasmBody = body |> List.collect (compileInstruction defns localtypes)
+        let stackType = inferTypeS defns wasmBody
+        (loopPrologue stackType) @ wasmBody @ loopEpilogue
+    | BIf (ifbody, elsebody) ->
+        let wasmIfBody = ifbody |> List.collect (compileInstruction defns localtypes)
+        let wasmElseBody =
+            match elsebody with
+            | None -> []
+            | Some instrs -> WasmInstruction.Else :: (instrs |> List.collect (compileInstruction defns localtypes))
+        let stackType = inferTypeS defns wasmIfBody
+        [WasmInstruction.If(stackType.Consumes, stackType.Produces)] @ wasmIfBody @ wasmElseBody @ [WasmInstruction.End]
 
 let asInstruction =
     function
@@ -238,7 +311,7 @@ let partition syntaxItems =
 
 let compileModule syntaxItems =
     let (funcs, structs, imports, consts, globals, datas) = partition syntaxItems
-    let defns = { Consts = consts; Structs = structs; Globals = globals }
+    let defns = { Consts = consts; Structs = structs; Globals = globals; Funcs = funcs }
     {
         Functions = funcs |> List.map (compileFunc defns)
         Imports = imports |> List.map (compileImport structs)

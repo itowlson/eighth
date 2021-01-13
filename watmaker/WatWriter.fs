@@ -54,6 +54,14 @@ let gindexText =
     function
     | GlobalId(s) -> s
 
+let sigtext ins outs =
+    let sigtext' (prefix: string) types =
+        match types with
+        | [] -> ""
+        | _  -> let typesText = types |> List.map typeId |> (fun tys -> System.String.Join(" ", tys))
+                sprintf " (%s %s)" prefix typesText
+    (sigtext' "param" ins) + (sigtext' "result" outs)
+
 let writeInstruction writer instruction =
     let text = 
         match instruction with
@@ -79,9 +87,9 @@ let writeInstruction writer instruction =
                 | FuncIndex(n) -> n.ToString()
                 | FuncId(s) -> s
             sprintf "call %s" argtext
-        | Block() -> "block (param i32) (result i32)"
-        | Loop() -> "loop (param i32) (result i32)"
-        | If() -> "if (result i32 i32)"
+        | Block(ins, outs) -> sprintf "block%s" (sigtext ins outs)
+        | Loop(ins, outs) -> sprintf "loop%s" (sigtext ins outs)
+        | If(ins, outs) -> sprintf "if%s" (sigtext ins outs)
         | Else -> "else"
         | End -> "end"
         | BreakIf(idx) -> sprintf "br_if %d" idx
